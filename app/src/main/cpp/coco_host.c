@@ -1,0 +1,325 @@
+// Android host for the headless XRoar core. Drives xroar_init()/xroar_run() and
+// owns the state the custom XRoar modules (ui_android/vo, ao_android,
+// joystick_android) talk to. Pure C so it includes XRoar's headers natively.
+
+#include "coco_host.h"
+
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <android/log.h>
+
+#include "top-config.h"
+#include "events.h"
+#include "hkbd.h"
+#include "joystick.h"
+#include "machine.h"
+#include "ui.h"
+#include "xroar.h"
+
+#define LOG_TAG "CocoHost"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// --- frame sink -------------------------------------------------------------
+static CocoFrameSink g_frame_sink = NULL;
+static void* g_frame_user = NULL;
+
+void cocohost_set_frame_sink(CocoFrameSink sink, void* user) {
+    g_frame_sink = sink;
+    g_frame_user = user;
+}
+
+void cocohost_emit_frame(const uint32_t* rgba8888, int width, int height) {
+    CocoFrameSink sink = g_frame_sink;
+    if (sink) {
+        sink(rgba8888, width, height, g_frame_user);
+    }
+}
+
+// --- config -----------------------------------------------------------------
+static char g_rompath[1024] = ".";
+static char g_becker_ip[64] = "127.0.0.1";
+static char g_becker_port[16] = "65504";
+
+void cocohost_set_rompath(const char* path) {
+    if (path && *path) {
+        strncpy(g_rompath, path, sizeof(g_rompath) - 1);
+        g_rompath[sizeof(g_rompath) - 1] = 0;
+    }
+}
+
+void cocohost_set_becker_endpoint(const char* ip, int port) {
+    if (ip && *ip) {
+        strncpy(g_becker_ip, ip, sizeof(g_becker_ip) - 1);
+        g_becker_ip[sizeof(g_becker_ip) - 1] = 0;
+    }
+    if (port > 0) {
+        snprintf(g_becker_port, sizeof(g_becker_port), "%d", port);
+    }
+}
+
+// --- joystick state (UI thread writes, emulator thread reads) ---------------
+static atomic_int g_js_axis[JOYSTICK_NUM_PORTS][JOYSTICK_NUM_AXES];
+static atomic_int g_js_button[JOYSTICK_NUM_PORTS][JOYSTICK_NUM_BUTTONS];
+static int g_js_initialised = 0;
+
+static void js_state_init(void) {
+    for (int p = 0; p < JOYSTICK_NUM_PORTS; ++p) {
+        for (int a = 0; a < JOYSTICK_NUM_AXES; ++a)
+            atomic_store(&g_js_axis[p][a], 32767);  // centre
+        for (int b = 0; b < JOYSTICK_NUM_BUTTONS; ++b)
+            atomic_store(&g_js_button[p][b], 0);
+    }
+    g_js_initialised = 1;
+}
+
+void cocohost_set_joystick_axis(int port, int axis, int value) {
+    if (port < 0 || port >= JOYSTICK_NUM_PORTS || axis < 0 || axis >= JOYSTICK_NUM_AXES)
+        return;
+    if (value < 0) value = 0;
+    if (value > 65535) value = 65535;
+    atomic_store(&g_js_axis[port][axis], value);
+}
+
+void cocohost_set_joystick_button(int port, int button, int pressed) {
+    if (port < 0 || port >= JOYSTICK_NUM_PORTS || button < 0 || button >= JOYSTICK_NUM_BUTTONS)
+        return;
+    atomic_store(&g_js_button[port][button], pressed ? 1 : 0);
+}
+
+int cocohost_get_joystick_axis(int port, int axis) {
+    if (port < 0 || port >= JOYSTICK_NUM_PORTS || axis < 0 || axis >= JOYSTICK_NUM_AXES)
+        return 32767;
+    return atomic_load(&g_js_axis[port][axis]);
+}
+
+int cocohost_get_joystick_button(int port, int button) {
+    if (port < 0 || port >= JOYSTICK_NUM_PORTS || button < 0 || button >= JOYSTICK_NUM_BUTTONS)
+        return 0;
+    return atomic_load(&g_js_button[port][button]);
+}
+
+// --- audio ring -------------------------------------------------------------
+// Interleaved stereo S16 at 44100 Hz. ao_android pushes completed buffers; the
+// JNI feeder drains. Bounded blocking wait so the AudioTrack thread paces
+// consumption and the 60Hz emulator loop paces production.
+#define AUDIO_RING_SAMPLES (44100 * 2)  // ~1s stereo
+static int16_t g_audio_ring[AUDIO_RING_SAMPLES];
+static size_t g_audio_head = 0;  // read
+static size_t g_audio_tail = 0;  // write
+static size_t g_audio_count = 0;
+static pthread_mutex_t g_audio_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_audio_cond = PTHREAD_COND_INITIALIZER;
+static atomic_int g_audio_active = 0;
+
+void cocohost_audio_set_active(int active) {
+    pthread_mutex_lock(&g_audio_mutex);
+    atomic_store(&g_audio_active, active ? 1 : 0);
+    pthread_cond_broadcast(&g_audio_cond);
+    pthread_mutex_unlock(&g_audio_mutex);
+}
+
+void cocohost_clear_audio(void) {
+    pthread_mutex_lock(&g_audio_mutex);
+    g_audio_head = g_audio_tail = g_audio_count = 0;
+    pthread_cond_broadcast(&g_audio_cond);
+    pthread_mutex_unlock(&g_audio_mutex);
+}
+
+void cocohost_push_audio(const int16_t* interleaved, int nframes) {
+    if (!interleaved || nframes <= 0) return;
+    const size_t samples = (size_t)nframes * 2;
+    pthread_mutex_lock(&g_audio_mutex);
+    for (size_t i = 0; i < samples; ++i) {
+        if (g_audio_count >= AUDIO_RING_SAMPLES) {
+            // Overflow: drop oldest to keep latency bounded.
+            g_audio_head = (g_audio_head + 1) % AUDIO_RING_SAMPLES;
+            g_audio_count--;
+        }
+        g_audio_ring[g_audio_tail] = interleaved[i];
+        g_audio_tail = (g_audio_tail + 1) % AUDIO_RING_SAMPLES;
+        g_audio_count++;
+    }
+    pthread_cond_broadcast(&g_audio_cond);
+    pthread_mutex_unlock(&g_audio_mutex);
+}
+
+int cocohost_fill_audio(int16_t* out, int maxSamples) {
+    if (!out || maxSamples <= 0) return 0;
+    pthread_mutex_lock(&g_audio_mutex);
+    // Wait (bounded) for at least a full block, unless audio is being torn down.
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_nsec += 50 * 1000000L;  // 50ms cap
+    if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+    while (atomic_load(&g_audio_active) &&
+           g_audio_count < (size_t)maxSamples) {
+        if (pthread_cond_timedwait(&g_audio_cond, &g_audio_mutex, &deadline) != 0)
+            break;  // timed out: emit what we have, silence-padded
+    }
+    int produced = 0;
+    while (produced < maxSamples && g_audio_count > 0) {
+        out[produced++] = g_audio_ring[g_audio_head];
+        g_audio_head = (g_audio_head + 1) % AUDIO_RING_SAMPLES;
+        g_audio_count--;
+    }
+    pthread_mutex_unlock(&g_audio_mutex);
+    // Silence-pad the remainder so the consumer always writes a full block.
+    for (int i = produced; i < maxSamples; ++i) out[i] = 0;
+    return maxSamples;
+}
+
+// --- command queue (applied on the emulator thread at run_frame) ------------
+struct key_event { int down; int scancode; };
+#define KEY_Q_SIZE 256
+static struct key_event g_key_q[KEY_Q_SIZE];
+static int g_key_head = 0, g_key_tail = 0;
+static pthread_mutex_t g_cmd_mutex = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int g_pending_tv_input = -1;
+static atomic_int g_pending_reset = 0;
+
+void cocohost_inject_key(int down, int scancode) {
+    if (scancode < 0 || scancode > 255) return;
+    pthread_mutex_lock(&g_cmd_mutex);
+    int next = (g_key_tail + 1) % KEY_Q_SIZE;
+    if (next != g_key_head) {  // drop if full
+        g_key_q[g_key_tail].down = down ? 1 : 0;
+        g_key_q[g_key_tail].scancode = scancode;
+        g_key_tail = next;
+    }
+    pthread_mutex_unlock(&g_cmd_mutex);
+}
+
+void cocohost_set_tv_input(int tvInput) {
+    atomic_store(&g_pending_tv_input,
+                 tvInput == COCO_TV_RGB ? TV_INPUT_RGB : TV_INPUT_SVIDEO);
+}
+
+void cocohost_core_reset(void) {
+    atomic_store(&g_pending_reset, 1);
+}
+
+static void apply_pending_commands(void) {
+    // Keyboard
+    pthread_mutex_lock(&g_cmd_mutex);
+    while (g_key_head != g_key_tail) {
+        struct key_event ev = g_key_q[g_key_head];
+        g_key_head = (g_key_head + 1) % KEY_Q_SIZE;
+        pthread_mutex_unlock(&g_cmd_mutex);
+        if (ev.down)
+            hk_scan_press((uint8_t)ev.scancode);
+        else
+            hk_scan_release((uint8_t)ev.scancode);
+        pthread_mutex_lock(&g_cmd_mutex);
+    }
+    pthread_mutex_unlock(&g_cmd_mutex);
+
+    int tv = atomic_exchange(&g_pending_tv_input, -1);
+    if (tv >= 0) {
+        ui_update_state(-1, ui_tag_tv_input, tv, NULL);
+    }
+
+    if (atomic_exchange(&g_pending_reset, 0)) {
+        xroar_hard_reset();
+    }
+}
+
+// --- joystick configs -------------------------------------------------------
+// Bind two analog joystick profiles (android0 -> right, android1 -> left) to the
+// "android" submodule provided by joystick_android.c.
+static void setup_joysticks(void) {
+    for (int port = 0; port < 2; ++port) {
+        struct joystick_config *jc = joystick_config_new();
+        char name[16];
+        snprintf(name, sizeof(name), "android%d", port);
+        jc->name = strdup(name);
+        char alias[16];
+        snprintf(alias, sizeof(alias), "joy%d", port);
+        jc->alias = strdup(alias);
+        jc->description = strdup(port == 0 ? "Android (right)" : "Android (left)");
+        char spec[16];
+        snprintf(spec, sizeof(spec), "android:%d", port);
+        for (int a = 0; a < JOYSTICK_NUM_AXES; ++a)
+            jc->axis_specs[a] = strdup(spec);
+        for (int b = 0; b < JOYSTICK_NUM_BUTTONS; ++b)
+            jc->button_specs[b] = strdup(spec);
+        ui_update_state(-1, ui_tag_joystick_port, port, (void *)(intptr_t)jc->id);
+    }
+}
+
+// --- lifecycle --------------------------------------------------------------
+static double g_tickerr = 0.0;
+static int g_started = 0;
+
+int cocohost_core_start(int machine, int tvInput) {
+    if (g_started) {
+        LOGW("cocohost_core_start ignored; already started");
+        return 1;
+    }
+    if (!g_js_initialised) js_state_init();
+
+    const char* machine_name = (machine == COCO_MACHINE_COCO2) ? "coco2bus" : "coco3";
+    const char* tv_name = (tvInput == COCO_TV_RGB) ? "rgb" : "cmp";
+
+    // argv strings must outlive xroar_init; keep them in this static frame.
+    static char a_rompath[1024];
+    static char a_ip[64];
+    static char a_port[16];
+    strncpy(a_rompath, g_rompath, sizeof(a_rompath) - 1);
+    strncpy(a_ip, g_becker_ip, sizeof(a_ip) - 1);
+    strncpy(a_port, g_becker_port, sizeof(a_port) - 1);
+
+    const char* argv[32];
+    int argc = 0;
+    argv[argc++] = "xroar";
+    argv[argc++] = "-ui";        argv[argc++] = "android";
+    argv[argc++] = "-ao";        argv[argc++] = "android";
+    argv[argc++] = "-rompath";   argv[argc++] = a_rompath;
+    argv[argc++] = "-machine";   argv[argc++] = machine_name;
+    argv[argc++] = "-tv-input";  argv[argc++] = tv_name;
+    // RS-DOS with Becker port: auto-loads HDB-DOS (@rsdos_becker = hdbdw3bck).
+    argv[argc++] = "-cart";      argv[argc++] = "becker";
+    if (machine != COCO_MACHINE_COCO2) {
+        // CoCo 3 wants the CoCo 3 HDB-DOS variant.
+        argv[argc++] = "-cart-rom"; argv[argc++] = "hdbdw3bc3";
+    }
+    argv[argc++] = "-becker";
+    argv[argc++] = "-becker-ip";   argv[argc++] = a_ip;
+    argv[argc++] = "-becker-port"; argv[argc++] = a_port;
+
+    LOGI("xroar_init machine=%s tv=%s becker=%s:%s rompath=%s",
+         machine_name, tv_name, a_ip, a_port, a_rompath);
+
+    struct ui_interface* ui = xroar_init(argc, (char **)argv);
+    if (!ui) {
+        LOGE("xroar_init failed");
+        return 0;
+    }
+    xroar_init_finish();
+    setup_joysticks();
+
+    g_tickerr = 0.0;
+    g_started = 1;
+    return 1;
+}
+
+void cocohost_core_run_frame(void) {
+    if (!g_started) return;
+    apply_pending_commands();
+
+    // Advance one 60Hz frame's worth of emulated ticks, carrying the fraction.
+    g_tickerr += (double)EVENT_TICK_RATE / 60.0;
+    int nticks = (int)(g_tickerr + 0.5);
+    g_tickerr -= nticks;
+    xroar_run(nticks);
+}
+
+void cocohost_core_stop(void) {
+    if (!g_started) return;
+    xroar_shutdown();
+    g_started = 0;
+}

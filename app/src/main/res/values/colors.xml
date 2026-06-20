@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FujiNet Go CoCo launcher icon background green (the Color Computer's
+         iconic green screen); also the UI accent. -->
+    <color name="ic_launcher_background">#8BC34A</color>
+</resources>
