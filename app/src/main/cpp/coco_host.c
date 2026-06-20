@@ -195,8 +195,9 @@ void cocohost_inject_key(int down, int scancode) {
 }
 
 void cocohost_set_tv_input(int tvInput) {
+    // Composite -> cmp-br (NTSC composite w/ artifact colours), not S-Video.
     atomic_store(&g_pending_tv_input,
-                 tvInput == COCO_TV_RGB ? TV_INPUT_RGB : TV_INPUT_SVIDEO);
+                 tvInput == COCO_TV_RGB ? TV_INPUT_RGB : TV_INPUT_CMP_KBRW);
 }
 
 void cocohost_core_reset(void) {
@@ -263,7 +264,10 @@ int cocohost_core_start(int machine, int tvInput) {
     if (!g_js_initialised) js_state_init();
 
     const char* machine_name = (machine == COCO_MACHINE_COCO2) ? "coco2bus" : "coco3";
-    const char* tv_name = (tvInput == COCO_TV_RGB) ? "rgb" : "cmp";
+    // "Composite" uses cmp-br (real NTSC composite), NOT "cmp" (which is XRoar's
+    // clean S-Video and shows no PMODE-4 artifact colours). The default cross-
+    // colour renderer is already 5-bit, so artifacts render nicely.
+    const char* tv_name = (tvInput == COCO_TV_RGB) ? "rgb" : "cmp-br";
 
     // argv strings must outlive xroar_init; keep them in this static frame.
     static char a_rompath[1024];

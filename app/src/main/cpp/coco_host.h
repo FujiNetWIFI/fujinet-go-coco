@@ -32,8 +32,8 @@ enum {
 
 // CoCo 3 display output (ignored on CoCo 2).
 enum {
-    COCO_TV_COMPOSITE = 0,  // xroar -tv-input cmp  (TV_INPUT_SVIDEO)
-    COCO_TV_RGB = 1,        // xroar -tv-input rgb  (TV_INPUT_RGB)
+    COCO_TV_COMPOSITE = 0,  // xroar -tv-input cmp-br (NTSC composite, artifact colours)
+    COCO_TV_RGB = 1,        // xroar -tv-input rgb    (TV_INPUT_RGB)
 };
 
 // --- frame sink (set by the session; called on the emulator thread) ---------
