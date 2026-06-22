@@ -21,6 +21,7 @@
 
 #include "hkbd.h"
 #include "joystick.h"
+#include "messenger.h"
 #include "module.h"
 #include "ui.h"
 #include "vo.h"
@@ -79,10 +80,14 @@ static void vo_android_notify_frame_rate(void *sptr, _Bool is_60hz) {
 static void vo_android_free(void *sptr) {
 	struct vo_android_interface *voa = sptr;
 	struct vo_render *vr = voa->vo_interface.renderer;
+	// xroar_shutdown invokes this delegate (vo_interface->free) directly, NOT via
+	// vo_free(), so we own the full teardown: unregister the vo's messenger client
+	// (otherwise a stale callback dangles into freed memory across a machine
+	// switch), free the renderer + buffer, then the vo struct itself.
+	messenger_client_unregister(voa->vo_interface.msgr_client_id);
 	if (vr) vo_render_free(vr);
 	free(voa->pixels);
-	voa->pixels = NULL;
-	// The vo_interface allocation itself is freed by vo_free().
+	free(voa);
 }
 
 static struct vo_interface *vo_android_new(void) {
@@ -143,9 +148,8 @@ static void *ui_android_new(void *cfg) {
 
 static void ui_android_free(void *sptr) {
 	struct ui_interface *ui = sptr;
-	if (ui->vo_interface) {
-		vo_free(ui->vo_interface);
-		ui->vo_interface = NULL;
-	}
+	// Do NOT free ui->vo_interface here: xroar_shutdown already tore it down via
+	// its own vo_interface->free delegate (line 1485). Calling vo_free() here as
+	// well was a double free of the renderer.
 	free(ui);
 }

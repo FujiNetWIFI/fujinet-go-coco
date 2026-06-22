@@ -12,6 +12,7 @@
 #include <android/log.h>
 
 #include "top-config.h"
+#include "cart.h"
 #include "events.h"
 #include "hkbd.h"
 #include "joystick.h"
@@ -200,6 +201,16 @@ void cocohost_set_tv_input(int tvInput) {
                  tvInput == COCO_TV_RGB ? TV_INPUT_RGB : TV_INPUT_CMP_KBRW);
 }
 
+// Pending in-place machine switch (applied on the emulator thread). g_pending_machine
+// is the trigger; set the tv companion first.
+static atomic_int g_pending_machine = -1;
+static atomic_int g_pending_machine_tv = -1;
+
+void cocohost_set_machine(int machine, int tvInput) {
+    atomic_store(&g_pending_machine_tv, tvInput);
+    atomic_store(&g_pending_machine, machine);
+}
+
 void cocohost_core_reset(void) {
     atomic_store(&g_pending_reset, 1);
 }
@@ -226,6 +237,28 @@ static void apply_pending_commands(void) {
 
     if (atomic_exchange(&g_pending_reset, 0)) {
         xroar_hard_reset();
+    }
+
+    // In-place machine switch (CoCo 2 <-> CoCo 3): no xroar re-init.
+    int sw = atomic_exchange(&g_pending_machine, -1);
+    if (sw >= 0) {
+        int swtv = atomic_exchange(&g_pending_machine_tv, -1);
+        const char *name = (sw == COCO_MACHINE_COCO2) ? "coco2bus" : "coco3";
+        const char *rom = (sw == COCO_MACHINE_COCO2) ? "hdbdw3bck" : "hdbdw3bc3";
+        int tvv = (swtv == COCO_TV_RGB) ? TV_INPUT_RGB : TV_INPUT_CMP_KBRW;
+        struct machine_config *mc = machine_config_by_name(name);
+        struct cart_config *cc = cart_config_by_name("becker");
+        if (mc) {
+            if (cc) { free(cc->rom); cc->rom = strdup(rom); }
+            LOGI("In-place machine switch -> %s (becker rom %s)", name, rom);
+            ui_update_state(-1, ui_tag_machine, mc->id, NULL);
+            if (cc) ui_update_state(-1, ui_tag_cartridge, cc->id, NULL);
+            xroar_hard_reset();
+            // tv-input last: selecting a CoCo 3 resets its tv-input, so re-apply.
+            ui_update_state(-1, ui_tag_tv_input, tvv, NULL);
+        } else {
+            LOGE("machine '%s' not found for in-place switch", name);
+        }
     }
 }
 

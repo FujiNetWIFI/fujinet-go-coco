@@ -59,6 +59,11 @@ void cocohost_core_reset(void);        // queued hard reset
 // Live RGB/composite switch (CoCo 3); applied on the emulator thread.
 void cocohost_set_tv_input(int tvInput);
 
+// In-place CoCo 2 <-> CoCo 3 switch: no XRoar re-init (that crashes), just
+// ui_update_state(machine/cartridge) + xroar_hard_reset on the emulator thread,
+// with the matching HDB-DOS Becker ROM. FujiNet stays up; becker reconnects.
+void cocohost_set_machine(int machine, int tvInput);
+
 // --- audio ------------------------------------------------------------------
 // ao_android pushes completed interleaved stereo S16 frames (44100 Hz).
 void cocohost_push_audio(const int16_t* interleaved, int nframes);

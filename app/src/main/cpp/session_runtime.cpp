@@ -229,14 +229,13 @@ void SessionRuntime::SwitchMachine(int machine, int tv_input) {
     if (machine_.load() == machine && tv_input_.load() == tv_input) {
         return;
     }
-    LOGI("SwitchMachine -> machine=%d tv=%d (restarting emulator, FujiNet stays up)",
+    LOGI("SwitchMachine -> machine=%d tv=%d (in-place, FujiNet stays up)",
          machine, tv_input);
-    StopEmulatorThread();
     machine_.store(machine);
     tv_input_.store(tv_input);
-    cocohost_clear_audio();
-    arm_auto_reset_.store(false);  // FujiNet already warm; no cold-boot reset needed
-    StartEmulatorThread();
+    // In-place switch on the emulator thread (no XRoar re-init / thread restart);
+    // xroar_hard_reset re-runs HDB-DOS auto-DOS against the already-warm FujiNet.
+    cocohost_set_machine(machine, tv_input);
 }
 
 void SessionRuntime::SetTvInput(int tv_input) {

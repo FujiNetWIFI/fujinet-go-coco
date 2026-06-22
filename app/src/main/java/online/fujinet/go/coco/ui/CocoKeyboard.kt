@@ -72,6 +72,11 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         KeyRow {
+            Key("BREAK", 1.5f, Coco.SCAN_ESCAPE, ::press, ::release, bg = CocoBreakRed, fg = Color.White)
+            Key("CLEAR", 1.5f, Coco.SCAN_HOME, ::press, ::release)
+            Key("DEL", 1.5f, Coco.SCAN_BACKSPACE, ::press, ::release)
+        }
+        KeyRow {
             for (c in "1234567890") Key(c.toString(), 1f, Coco.scanForDigit(c), ::press, ::release)
             Key("-", 1f, Coco.SCAN_MINUS, ::press, ::release)
         }
@@ -98,11 +103,6 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
             Key("↑", 1f, Coco.SCAN_UP, ::press, ::release)
             Key("→", 1f, Coco.SCAN_RIGHT, ::press, ::release)
         }
-        KeyRow {
-            Key("BREAK", 1.5f, Coco.SCAN_ESCAPE, ::press, ::release)
-            Key("CLEAR", 1.5f, Coco.SCAN_HOME, ::press, ::release)
-            Key("DEL", 1.5f, Coco.SCAN_BACKSPACE, ::press, ::release)
-        }
     }
 }
 
@@ -116,6 +116,9 @@ private fun KeyRow(content: @Composable RowScope.() -> Unit) {
 
 // A momentary key held for the duration of the touch: press on finger-down,
 // release on finger-up (incl. cancel), so the held interval spans many frames.
+// The Color Computer's BREAK key is red on the real keyboard.
+private val CocoBreakRed = Color(0xFFC62828)
+
 @Composable
 private fun RowScope.Key(
     label: String,
@@ -123,8 +126,10 @@ private fun RowScope.Key(
     scancode: Int,
     onPress: (Int) -> Unit,
     onRelease: (Int) -> Unit,
+    bg: Color = MaterialTheme.colorScheme.surface,
+    fg: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    KeyBox(label, weight, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, scancode) {
+    KeyBox(label, weight, bg, fg, scancode) {
         detectTapGestures(onPress = {
             onPress(scancode)
             try {
