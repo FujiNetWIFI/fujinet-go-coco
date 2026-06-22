@@ -27,7 +27,8 @@ public:
                       const std::string& data_path,
                       const std::string& rom_path,
                       int machine,
-                      int tv_input);
+                      int tv_input,
+                      int ccr);
     void StopSession();
     bool IsRunning() const { return running_.load(); }
 
@@ -36,8 +37,10 @@ public:
     // becker reconnects. Live RGB/composite is applied without a restart.
     void SwitchMachine(int machine, int tv_input);
     void SetTvInput(int tv_input);
+    void SetCcr(int ccr);
     int  CurrentMachine() const { return machine_.load(); }
     int  CurrentTvInput() const { return tv_input_.load(); }
+    int  CurrentCcr() const { return ccr_.load(); }
 
     void AttachSurface(JNIEnv* env, jobject surface);
     void DetachSurface(JNIEnv* env);
@@ -90,6 +93,7 @@ private:
 
     std::atomic<int> machine_{0};   // COCO_MACHINE_*
     std::atomic<int> tv_input_{0};  // COCO_TV_*
+    std::atomic<int> ccr_{2};       // COCO_CCR_* (default 5-bit)
 
     std::string runtime_root_;
     std::string config_path_;

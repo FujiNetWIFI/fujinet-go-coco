@@ -103,7 +103,8 @@ void SessionRuntime::StartSession(const std::string& runtime_root,
                                   const std::string& data_path,
                                   const std::string& rom_path,
                                   int machine,
-                                  int tv_input) {
+                                  int tv_input,
+                                  int ccr) {
     std::lock_guard<std::mutex> lock(lifecycle_mutex_);
     if (running_.load()) {
         LOGW("StartSession ignored; session already running");
@@ -117,6 +118,7 @@ void SessionRuntime::StartSession(const std::string& runtime_root,
     rom_path_ = rom_path;
     machine_.store(machine);
     tv_input_.store(tv_input);
+    ccr_.store(ccr);
 
     // XRoar resolves ~ paths from $HOME; Android doesn't set it. Point it at the
     // app's writable runtime root so any XRoar autosave/config lands there.
@@ -171,7 +173,7 @@ void SessionRuntime::EmulatorThreadMain() {
     // (THREAD_PRIORITY_URGENT_DISPLAY = -8), but stay below the audio feeder.
     setpriority(PRIO_PROCESS, 0, -8);
 
-    if (!cocohost_core_start(machine_.load(), tv_input_.load())) {
+    if (!cocohost_core_start(machine_.load(), tv_input_.load(), ccr_.load())) {
         LOGE("XRoar core failed to start");
         running_.store(false);
         return;
@@ -241,6 +243,11 @@ void SessionRuntime::SwitchMachine(int machine, int tv_input) {
 void SessionRuntime::SetTvInput(int tv_input) {
     tv_input_.store(tv_input);
     cocohost_set_tv_input(tv_input);  // live, applied on the emulator thread
+}
+
+void SessionRuntime::SetCcr(int ccr) {
+    ccr_.store(ccr);
+    cocohost_set_ccr(ccr);  // live, applied on the emulator thread
 }
 
 void SessionRuntime::StopSession() {

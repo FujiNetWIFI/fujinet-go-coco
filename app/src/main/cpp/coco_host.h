@@ -30,10 +30,21 @@ enum {
     COCO_MACHINE_COCO2 = 1,  // xroar -machine coco2bus, becker ROM hdbdw3bck
 };
 
-// CoCo 3 display output (ignored on CoCo 2).
+// TV input / artifact mode (values match XRoar TV_INPUT_*).
 enum {
-    COCO_TV_COMPOSITE = 0,  // xroar -tv-input cmp-br (NTSC composite, artifact colours)
-    COCO_TV_RGB = 1,        // xroar -tv-input rgb    (TV_INPUT_RGB)
+    COCO_TV_SVIDEO = 0,        // S-Video: clean, no artifact colours
+    COCO_TV_COMPOSITE_BR = 1,  // Composite, blue-red artifact phase
+    COCO_TV_COMPOSITE_RB = 2,  // Composite, red-blue artifact phase
+    COCO_TV_RGB = 3,           // RGB (CoCo 3)
+};
+
+// Composite cross-colour (artifact) renderer (values match XRoar VO_CMP_CCR_*).
+enum {
+    COCO_CCR_NONE = 0,
+    COCO_CCR_SIMPLE = 1,
+    COCO_CCR_5BIT = 2,
+    COCO_CCR_PARTIAL = 3,
+    COCO_CCR_SIMULATED = 4,
 };
 
 // --- frame sink (set by the session; called on the emulator thread) ---------
@@ -50,14 +61,17 @@ void cocohost_set_becker_endpoint(const char* ip, int port);
 
 // --- core lifecycle (call on the emulator thread) ---------------------------
 // Builds argv and runs xroar_init()/xroar_init_finish(). machine is COCO_MACHINE_*,
-// tvInput is COCO_TV_*. Returns 0 on failure.
-int  cocohost_core_start(int machine, int tvInput);
+// tvInput is COCO_TV_*, ccr is COCO_CCR_*. Returns 0 on failure.
+int  cocohost_core_start(int machine, int tvInput, int ccr);
 void cocohost_core_run_frame(void);   // advances one ~60Hz frame of emulation
 void cocohost_core_stop(void);
 void cocohost_core_reset(void);        // queued hard reset
 
-// Live RGB/composite switch (CoCo 3); applied on the emulator thread.
+// Live TV-input / artifact-mode switch (COCO_TV_*); applied on the emulator thread.
 void cocohost_set_tv_input(int tvInput);
+
+// Live composite cross-colour (artifact) renderer switch (COCO_CCR_*).
+void cocohost_set_ccr(int ccr);
 
 // In-place CoCo 2 <-> CoCo 3 switch: no XRoar re-init (that crashes), just
 // ui_update_state(machine/cartridge) + xroar_hard_reset on the emulator thread,

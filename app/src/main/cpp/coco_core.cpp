@@ -21,11 +21,11 @@ JNIEXPORT void JNICALL
 Java_online_fujinet_go_coco_core_EmulatorNative_nativeStartSession(
         JNIEnv* env, jobject /*thiz*/,
         jstring runtimeRoot, jstring configPath, jstring sdPath, jstring dataPath,
-        jstring romPath, jint machine, jint tvInput) {
+        jstring romPath, jint machine, jint tvInput, jint ccr) {
     SessionRuntime::Get().StartSession(
             JStr(env, runtimeRoot), JStr(env, configPath),
             JStr(env, sdPath), JStr(env, dataPath), JStr(env, romPath),
-            static_cast<int>(machine), static_cast<int>(tvInput));
+            static_cast<int>(machine), static_cast<int>(tvInput), static_cast<int>(ccr));
 }
 
 JNIEXPORT void JNICALL
@@ -50,6 +50,18 @@ JNIEXPORT void JNICALL
 Java_online_fujinet_go_coco_core_EmulatorNative_nativeSetTvInput(
         JNIEnv* /*env*/, jobject /*thiz*/, jint tvInput) {
     SessionRuntime::Get().SetTvInput(static_cast<int>(tvInput));
+}
+
+JNIEXPORT void JNICALL
+Java_online_fujinet_go_coco_core_EmulatorNative_nativeSetCcr(
+        JNIEnv* /*env*/, jobject /*thiz*/, jint ccr) {
+    SessionRuntime::Get().SetCcr(static_cast<int>(ccr));
+}
+
+JNIEXPORT jint JNICALL
+Java_online_fujinet_go_coco_core_EmulatorNative_nativeCurrentCcr(
+        JNIEnv* /*env*/, jobject /*thiz*/) {
+    return static_cast<jint>(SessionRuntime::Get().CurrentCcr());
 }
 
 JNIEXPORT jint JNICALL

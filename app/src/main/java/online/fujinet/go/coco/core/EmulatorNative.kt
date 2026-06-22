@@ -32,19 +32,24 @@ object EmulatorNative {
         romPath: String,
         machine: Int,
         tvInput: Int,
+        ccr: Int,
     )
 
     external fun nativeStopSession()
     external fun nativeIsRunning(): Boolean
 
-    /** Switch CoCo 2 <-> CoCo 3 (restarts the emulator; FujiNet stays up). */
+    /** Switch CoCo 2 <-> CoCo 3 in place (FujiNet stays up). */
     external fun nativeSwitchMachine(machine: Int, tvInput: Int)
 
-    /** Live RGB/composite switch (CoCo 3 only). */
+    /** Live TV-input / artifact-mode switch (Coco.TV_*). */
     external fun nativeSetTvInput(tvInput: Int)
+
+    /** Live composite cross-colour (artifact) renderer switch (Coco.CCR_*). */
+    external fun nativeSetCcr(ccr: Int)
 
     external fun nativeCurrentMachine(): Int
     external fun nativeCurrentTvInput(): Int
+    external fun nativeCurrentCcr(): Int
 
     external fun nativeAttachSurface(surface: Surface)
     external fun nativeDetachSurface()

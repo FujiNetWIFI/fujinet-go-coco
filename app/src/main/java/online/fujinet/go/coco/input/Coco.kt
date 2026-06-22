@@ -14,9 +14,18 @@ object Coco {
     const val MACHINE_COCO3 = 0
     const val MACHINE_COCO2 = 1
 
-    // --- CoCo 3 display output (coco_host.h) ---
-    const val TV_COMPOSITE = 0
-    const val TV_RGB = 1
+    // --- TV input / artifact mode (coco_host.h, matches XRoar TV_INPUT_*) ---
+    const val TV_SVIDEO = 0        // clean, no artifact colours
+    const val TV_COMPOSITE_BR = 1  // composite, blue-red artifact phase
+    const val TV_COMPOSITE_RB = 2  // composite, red-blue artifact phase
+    const val TV_RGB = 3           // RGB (CoCo 3)
+
+    // --- composite cross-colour (artifact) renderer (matches XRoar VO_CMP_CCR_*) ---
+    const val CCR_NONE = 0
+    const val CCR_SIMPLE = 1
+    const val CCR_5BIT = 2
+    const val CCR_PARTIAL = 3
+    const val CCR_SIMULATED = 4
 
     // --- joystick ---
     const val PORT_RIGHT = 0

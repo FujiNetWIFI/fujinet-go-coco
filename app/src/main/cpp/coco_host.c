@@ -18,6 +18,7 @@
 #include "joystick.h"
 #include "machine.h"
 #include "ui.h"
+#include "vo.h"
 #include "xroar.h"
 
 #define LOG_TAG "CocoHost"
@@ -195,10 +196,46 @@ void cocohost_inject_key(int down, int scancode) {
     pthread_mutex_unlock(&g_cmd_mutex);
 }
 
+// --- artifact-setting mapping (COCO_* -> XRoar) -----------------------------
+static const char *tv_input_arg(int mode) {
+    switch (mode) {
+        case COCO_TV_SVIDEO:       return "cmp";
+        case COCO_TV_COMPOSITE_RB: return "cmp-rb";
+        case COCO_TV_RGB:          return "rgb";
+        case COCO_TV_COMPOSITE_BR:
+        default:                   return "cmp-br";
+    }
+}
+static int tv_input_xroar(int mode) {
+    switch (mode) {
+        case COCO_TV_SVIDEO:       return TV_INPUT_SVIDEO;
+        case COCO_TV_COMPOSITE_RB: return TV_INPUT_CMP_KRBW;
+        case COCO_TV_RGB:          return TV_INPUT_RGB;
+        case COCO_TV_COMPOSITE_BR:
+        default:                   return TV_INPUT_CMP_KBRW;
+    }
+}
+static int ccr_xroar(int ccr) {
+    switch (ccr) {
+        case COCO_CCR_NONE:      return VO_CMP_CCR_PALETTE;
+        case COCO_CCR_SIMPLE:    return VO_CMP_CCR_2BIT;
+        case COCO_CCR_PARTIAL:   return VO_CMP_CCR_PARTIAL;
+        case COCO_CCR_SIMULATED: return VO_CMP_CCR_SIMULATED;
+        case COCO_CCR_5BIT:
+        default:                 return VO_CMP_CCR_5BIT;
+    }
+}
+
+static int g_ccr = COCO_CCR_5BIT;
+static atomic_int g_pending_ccr = -1;
+
 void cocohost_set_tv_input(int tvInput) {
-    // Composite -> cmp-br (NTSC composite w/ artifact colours), not S-Video.
-    atomic_store(&g_pending_tv_input,
-                 tvInput == COCO_TV_RGB ? TV_INPUT_RGB : TV_INPUT_CMP_KBRW);
+    atomic_store(&g_pending_tv_input, tv_input_xroar(tvInput));
+}
+
+void cocohost_set_ccr(int ccr) {
+    g_ccr = ccr;
+    atomic_store(&g_pending_ccr, ccr_xroar(ccr));
 }
 
 // Pending in-place machine switch (applied on the emulator thread). g_pending_machine
@@ -235,6 +272,11 @@ static void apply_pending_commands(void) {
         ui_update_state(-1, ui_tag_tv_input, tv, NULL);
     }
 
+    int ccr = atomic_exchange(&g_pending_ccr, -1);
+    if (ccr >= 0) {
+        ui_update_state(-1, ui_tag_ccr, ccr, NULL);
+    }
+
     if (atomic_exchange(&g_pending_reset, 0)) {
         xroar_hard_reset();
     }
@@ -245,7 +287,7 @@ static void apply_pending_commands(void) {
         int swtv = atomic_exchange(&g_pending_machine_tv, -1);
         const char *name = (sw == COCO_MACHINE_COCO2) ? "coco2bus" : "coco3";
         const char *rom = (sw == COCO_MACHINE_COCO2) ? "hdbdw3bck" : "hdbdw3bc3";
-        int tvv = (swtv == COCO_TV_RGB) ? TV_INPUT_RGB : TV_INPUT_CMP_KBRW;
+        int tvv = tv_input_xroar(swtv);
         struct machine_config *mc = machine_config_by_name(name);
         struct cart_config *cc = cart_config_by_name("becker");
         if (mc) {
@@ -289,18 +331,18 @@ static void setup_joysticks(void) {
 static double g_tickerr = 0.0;
 static int g_started = 0;
 
-int cocohost_core_start(int machine, int tvInput) {
+int cocohost_core_start(int machine, int tvInput, int ccr) {
     if (g_started) {
         LOGW("cocohost_core_start ignored; already started");
         return 1;
     }
     if (!g_js_initialised) js_state_init();
+    g_ccr = ccr;
 
     const char* machine_name = (machine == COCO_MACHINE_COCO2) ? "coco2bus" : "coco3";
-    // "Composite" uses cmp-br (real NTSC composite), NOT "cmp" (which is XRoar's
-    // clean S-Video and shows no PMODE-4 artifact colours). The default cross-
-    // colour renderer is already 5-bit, so artifacts render nicely.
-    const char* tv_name = (tvInput == COCO_TV_RGB) ? "rgb" : "cmp-br";
+    // tv-input selects the artifact mode (cmp = S-Video/no artifacts, cmp-br /
+    // cmp-rb = composite artifact phases, rgb = CoCo 3 RGB).
+    const char* tv_name = tv_input_arg(tvInput);
 
     // argv strings must outlive xroar_init; keep them in this static frame.
     static char a_rompath[1024];
@@ -338,6 +380,8 @@ int cocohost_core_start(int machine, int tvInput) {
     }
     xroar_init_finish();
     setup_joysticks();
+    // Apply the composite cross-colour (artifact) renderer.
+    ui_update_state(-1, ui_tag_ccr, ccr_xroar(ccr), NULL);
 
     g_tickerr = 0.0;
     g_started = 1;

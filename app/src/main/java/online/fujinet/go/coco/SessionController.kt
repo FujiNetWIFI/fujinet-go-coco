@@ -29,7 +29,10 @@ class SessionController private constructor(private val context: Context) {
     @Volatile var machine: Int = prefs.getInt(KEY_MACHINE, Coco.MACHINE_COCO3)
         private set
 
-    @Volatile var tvInput: Int = prefs.getInt(KEY_TV, Coco.TV_COMPOSITE)
+    @Volatile var tvInput: Int = prefs.getInt(KEY_TV, Coco.TV_COMPOSITE_BR)
+        private set
+
+    @Volatile var ccr: Int = prefs.getInt(KEY_CCR, Coco.CCR_5BIT)
         private set
 
     /** The FujiNet SD directory (where imported media lands), once staged. */
@@ -47,7 +50,7 @@ class SessionController private constructor(private val context: Context) {
         try {
             val p = paths ?: RuntimeInstaller(context.applicationContext).install().also { paths = it }
             EmulatorNative.nativeStartSession(
-                p.runtimeRoot, p.configPath, p.sdPath, p.dataPath, p.romPath, machine, tvInput,
+                p.runtimeRoot, p.configPath, p.sdPath, p.dataPath, p.romPath, machine, tvInput, ccr,
             )
             audio.start()
         } catch (t: Throwable) {
@@ -66,25 +69,34 @@ class SessionController private constructor(private val context: Context) {
     fun attachSurface(surface: Surface) = EmulatorNative.nativeAttachSurface(surface)
     fun detachSurface() = EmulatorNative.nativeDetachSurface()
 
-    // --- machine / display ---------------------------------------------------
+    // --- machine / artifact settings -----------------------------------------
 
-    /** Switch CoCo 2 <-> CoCo 3 (restarts XRoar with the matching HDB-DOS ROM). */
+    /** Switch CoCo 2 <-> CoCo 3 in place (matching HDB-DOS ROM; FujiNet stays up). */
     fun setMachine(newMachine: Int) {
         if (machine == newMachine) return
         machine = newMachine
-        // CoCo 2 has no RGB output; force composite there.
-        if (machine == Coco.MACHINE_COCO2) tvInput = Coco.TV_COMPOSITE
+        // CoCo 2 has no RGB output; fall back to composite there.
+        if (machine == Coco.MACHINE_COCO2 && tvInput == Coco.TV_RGB) tvInput = Coco.TV_COMPOSITE_BR
         prefs.edit().putInt(KEY_MACHINE, machine).putInt(KEY_TV, tvInput).apply()
         EmulatorNative.nativeSwitchMachine(machine, tvInput)
     }
 
-    /** Set the CoCo 3 display output (composite/RGB); applied live. */
+    /** Set the TV input / artifact mode (Coco.TV_*); applied live. RGB is CoCo 3 only. */
     fun setTvInput(newTv: Int) {
-        if (machine == Coco.MACHINE_COCO2) return  // composite only
-        if (tvInput == newTv) return
-        tvInput = newTv
+        var tv = newTv
+        if (machine == Coco.MACHINE_COCO2 && tv == Coco.TV_RGB) tv = Coco.TV_COMPOSITE_BR
+        if (tvInput == tv) return
+        tvInput = tv
         prefs.edit().putInt(KEY_TV, tvInput).apply()
         EmulatorNative.nativeSetTvInput(tvInput)
+    }
+
+    /** Set the composite cross-colour (artifact) renderer (Coco.CCR_*); applied live. */
+    fun setCcr(newCcr: Int) {
+        if (ccr == newCcr) return
+        ccr = newCcr
+        prefs.edit().putInt(KEY_CCR, ccr).apply()
+        EmulatorNative.nativeSetCcr(ccr)
     }
 
     // --- keyboard ------------------------------------------------------------
@@ -127,6 +139,9 @@ class SessionController private constructor(private val context: Context) {
 
         private const val TAG = "FujiCoCo"
         private const val KEY_MACHINE = "machine"
-        private const val KEY_TV = "tv_input"
+        // "tv_mode" (not the old "tv_input"): the enum's meaning changed (now 0..3
+        // = S-Video / composite-BR / composite-RB / RGB), so reset to the default.
+        private const val KEY_TV = "tv_mode"
+        private const val KEY_CCR = "ccr"
     }
 }
