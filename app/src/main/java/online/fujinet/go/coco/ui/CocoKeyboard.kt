@@ -79,22 +79,27 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
             Key("DEL", 1.5f, Coco.SCAN_BACKSPACE, ::press, ::release)
         }
         KeyRow {
-            for (c in "1234567890") Key(c.toString(), 1f, Coco.scanForDigit(c), ::press, ::release)
-            Key("-", 1f, Coco.SCAN_MINUS, ::press, ::release)
+            // CoCo shifted top row: 1! 2" 3# 4$ 5% 6& 7' 8( 9) 0  - =
+            val shiftedDigits = "!\"#\$%&'()0"
+            "1234567890".forEachIndexed { i, c ->
+                val lbl = if (shift) shiftedDigits[i].toString() else c.toString()
+                Key(lbl, 1f, Coco.scanForDigit(c), ::press, ::release)
+            }
+            Key(if (shift) "=" else "-", 1f, Coco.SCAN_MINUS, ::press, ::release)
         }
         KeyRow {
             for (c in "QWERTYUIOP") Key(c.toString(), 1f, Coco.scanForLetter(c), ::press, ::release)
         }
         KeyRow {
             for (c in "ASDFGHJKL") Key(c.toString(), 1f, Coco.scanForLetter(c), ::press, ::release)
-            Key(";", 1f, Coco.SCAN_SEMICOLON, ::press, ::release)
+            Key(if (shift) "+" else ";", 1f, Coco.SCAN_SEMICOLON, ::press, ::release)
             Key("ENTER", 1.8f, Coco.SCAN_RETURN, ::press, ::release)
         }
         KeyRow {
             for (c in "ZXCVBNM") Key(c.toString(), 1f, Coco.scanForLetter(c), ::press, ::release)
-            Key(",", 1f, Coco.SCAN_COMMA, ::press, ::release)
-            Key(".", 1f, Coco.SCAN_PERIOD, ::press, ::release)
-            Key("/", 1f, Coco.SCAN_SLASH, ::press, ::release)
+            Key(if (shift) "<" else ",", 1f, Coco.SCAN_COMMA, ::press, ::release)
+            Key(if (shift) ">" else ".", 1f, Coco.SCAN_PERIOD, ::press, ::release)
+            Key(if (shift) "?" else "/", 1f, Coco.SCAN_SLASH, ::press, ::release)
         }
         KeyRow {
             ModKey("SHIFT", 1.4f, active = shift) { toggleShift() }
