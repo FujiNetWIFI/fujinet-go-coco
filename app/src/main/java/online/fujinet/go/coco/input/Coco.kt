@@ -69,4 +69,25 @@ object Coco {
 
     /** Scancode for a digit '0'..'9' (HID puts 1..9 before 0). */
     fun scanForDigit(c: Char): Int = if (c == '0') SCAN_0 else SCAN_1 + (c - '1')
+
+    /** A single key to type a character: its scancode and whether SHIFT is held. */
+    data class KeyStroke(val scancode: Int, val shift: Boolean)
+
+    /** CoCo shifted top-row symbols, indexed by digit key 1 2 3 4 5 6 7 8 9 0. */
+    private const val SHIFTED_DIGITS = "!\"#\$%&'()0"
+
+    /**
+     * The keystroke that types ASCII [c] on the CoCo through XRoar's untranslated
+     * hkbd keymap, or null if it can't be typed with a single key. Letters type
+     * unshifted (CoCo BASIC is uppercase); the shifted top-row symbols (e.g. ")
+     * hold SHIFT. Used to play the on-screen keyboard's command macros.
+     */
+    fun keyStrokeFor(c: Char): KeyStroke? = when (c) {
+        ' ' -> KeyStroke(SCAN_SPACE, false)
+        in 'A'..'Z', in 'a'..'z' -> KeyStroke(scanForLetter(c), false)
+        in '0'..'9' -> KeyStroke(scanForDigit(c), false)
+        else -> SHIFTED_DIGITS.indexOf(c)
+            .takeIf { it >= 0 }
+            ?.let { KeyStroke(scanForDigit("1234567890"[it]), true) }
+    }
 }

@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +29,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import online.fujinet.go.coco.SessionController
 import online.fujinet.go.coco.input.Coco
 
@@ -66,6 +69,27 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
         if (ctrl) { ctrl = false; session.keyUp(Coco.SCAN_CONTROL_L) }
     }
 
+    val scope = rememberCoroutineScope()
+
+    // Type a command macro one character at a time, holding each key long enough
+    // for the CoCo's ~60Hz matrix scan to register it. Run from a clean modifier
+    // state so a sticky SHIFT/CTRL can't alter the typed characters.
+    fun typeMacro(text: String) {
+        if (shift) { shift = false; session.keyUp(Coco.SCAN_SHIFT_L) }
+        if (ctrl) { ctrl = false; session.keyUp(Coco.SCAN_CONTROL_L) }
+        scope.launch {
+            for (c in text) {
+                val stroke = Coco.keyStrokeFor(c) ?: continue
+                if (stroke.shift) session.keyDown(Coco.SCAN_SHIFT_L)
+                session.keyDown(stroke.scancode)
+                delay(MACRO_HOLD_MS)
+                session.keyUp(stroke.scancode)
+                if (stroke.shift) session.keyUp(Coco.SCAN_SHIFT_L)
+                delay(MACRO_GAP_MS)
+            }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -77,6 +101,11 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
             Key("BREAK", 1.5f, Coco.SCAN_ESCAPE, ::press, ::release, bg = CocoBreakRed, fg = Color.White)
             Key("CLEAR", 1.5f, Coco.SCAN_HOME, ::press, ::release)
             Key("DEL", 1.5f, Coco.SCAN_BACKSPACE, ::press, ::release)
+        }
+        KeyRow {
+            MacroKey("RUNM\"", 1.5f) { typeMacro("RUNM\"") }
+            MacroKey("DIR", 1.5f) { typeMacro("DIR") }
+            MacroKey("DOS", 1.5f) { typeMacro("DOS") }
         }
         KeyRow {
             // CoCo shifted top row: 1! 2" 3# 4$ 5% 6& 7' 8( 9) 0  - =
@@ -145,6 +174,18 @@ private fun RowScope.Key(
                 onRelease(scancode)
             }
         })
+    }
+}
+
+// A command macro: tapping it types a fixed string (e.g. a BASIC command) into
+// the running CoCo, character by character. See [CocoKeyboard]'s typeMacro.
+private const val MACRO_HOLD_MS = 40L  // each key held this long for the matrix scan
+private const val MACRO_GAP_MS = 40L   // released this long before the next key
+
+@Composable
+private fun RowScope.MacroKey(label: String, weight: Float, onTap: () -> Unit) {
+    KeyBox(label, weight, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, label) {
+        detectTapGestures(onTap = { onTap() })
     }
 }
 
