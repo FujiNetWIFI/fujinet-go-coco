@@ -125,8 +125,8 @@ android {
         applicationId = "online.fujinet.go.coco"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3 
+        versionName = "0.4.0"
         buildConfigField("String", "XROAR_VERSION", "\"${xroarVersion}\"")
         buildConfigField("String", "FUJINET_RUNTIME_VERSION", "\"${fujiNetRuntimeVersion}\"")
 
