@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import online.fujinet.go.coco.fujinet.FujiNetWebViewActivity
 import online.fujinet.go.coco.input.GameControllerMapper
+import online.fujinet.go.coco.input.HardwareKeyboard
 import online.fujinet.go.coco.ui.EmulatorScreen
 import online.fujinet.go.coco.ui.theme.FujiNetGoCoCoTheme
 
@@ -40,6 +41,14 @@ class MainActivity : ComponentActivity() {
         GameControllerMapper(
             onAxis = { x, y -> session.joystick(x, y) },
             onButton = { index, pressed -> session.joystickButton(index, pressed) },
+        )
+    }
+
+    // Routes an attached hardware keyboard to the CoCo keyboard.
+    private val keyboard by lazy {
+        HardwareKeyboard(
+            onDown = { scancode -> session.keyDown(scancode) },
+            onUp = { scancode -> session.keyUp(scancode) },
         )
     }
 
@@ -108,7 +117,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (::session.isInitialized && gamepad.onKey(event)) return true
+        if (::session.isInitialized) {
+            // Game controller first, then a hardware keyboard. A TV remote's D-pad is
+            // claimed by neither, so it falls through to Compose focus navigation.
+            if (gamepad.onKey(event)) return true
+            if (keyboard.onKey(event)) return true
+        }
         return super.dispatchKeyEvent(event)
     }
 

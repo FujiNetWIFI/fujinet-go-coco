@@ -2,7 +2,11 @@ package online.fujinet.go.coco.ui
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
@@ -165,7 +175,13 @@ private fun RowScope.Key(
     bg: Color = MaterialTheme.colorScheme.surface,
     fg: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    KeyBox(label, weight, bg, fg, scancode) {
+    KeyBox(
+        label, weight, bg, fg, scancode,
+        // D-pad/remote: hold while OK is held, mirroring the touch press/release so
+        // the CoCo matrix scan sees it.
+        onDpadPress = { onPress(scancode) },
+        onDpadRelease = { onRelease(scancode) },
+    ) {
         detectTapGestures(onPress = {
             onPress(scancode)
             try {
@@ -184,7 +200,10 @@ private const val MACRO_GAP_MS = 40L   // released this long before the next key
 
 @Composable
 private fun RowScope.MacroKey(label: String, weight: Float, onTap: () -> Unit) {
-    KeyBox(label, weight, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, label) {
+    KeyBox(
+        label, weight, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, label,
+        onDpadRelease = { onTap() }, // fire once on OK release, like a click
+    ) {
         detectTapGestures(onTap = { onTap() })
     }
 }
@@ -193,10 +212,16 @@ private fun RowScope.MacroKey(label: String, weight: Float, onTap: () -> Unit) {
 private fun RowScope.ModKey(label: String, weight: Float, active: Boolean, onToggle: () -> Unit) {
     val bg = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
     val fg = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    KeyBox(label, weight, bg, fg, active) {
+    KeyBox(
+        label, weight, bg, fg, active,
+        onDpadRelease = { onToggle() },
+    ) {
         detectTapGestures(onTap = { onToggle() })
     }
 }
+
+// Bright highlight for the D-pad / TV-remote focused key.
+private val FocusAmber = Color(0xFFFFC107)
 
 @Composable
 private fun RowScope.KeyBox(
@@ -205,19 +230,49 @@ private fun RowScope.KeyBox(
     bg: Color,
     fg: Color,
     key: Any,
+    onDpadPress: () -> Unit = {},
+    onDpadRelease: () -> Unit = {},
     gestures: suspend androidx.compose.ui.input.pointer.PointerInputScope.() -> Unit,
 ) {
     val compact = compactKeyboard()
+    // The keys use pointerInput (press/hold/release for the matrix scan), which is
+    // not focusable on its own, so on a TV the D-pad couldn't reach them. Make each
+    // key focusable, drive it with OK (DPAD_CENTER/Enter), and show a bright amber +
+    // white-outline highlight so the focused key is obvious from across the room.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(6.dp)
+    val container = if (focused) FocusAmber else bg
+    val content = if (focused) Color.Black else fg
     Box(
         modifier = Modifier
             .weight(weight)
             .height(if (compact) 28.dp else 44.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(bg)
+            .clip(shape)
+            .background(container)
+            .then(if (focused) Modifier.border(3.dp, Color.White, shape) else Modifier)
+            .focusable(interactionSource = interaction)
+            .onKeyEvent { handleOkKey(it, onDpadPress, onDpadRelease) }
             .pointerInput(key, bg) { gestures() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = fg, fontSize = if (compact) 11.sp else 14.sp, textAlign = TextAlign.Center)
+        Text(label, color = content, fontSize = if (compact) 11.sp else 14.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/**
+ * Handle the focus system's "OK" (DPAD_CENTER / Enter) on a focused key as a
+ * press-and-hold: down on key-down, release on key-up, so the CoCo matrix scan
+ * sees the key held. Auto-repeat re-downs just re-assert the (idempotent) press.
+ */
+private fun handleOkKey(event: KeyEvent, onPress: () -> Unit, onRelease: () -> Unit): Boolean {
+    if (event.key != Key.DirectionCenter && event.key != Key.Enter && event.key != Key.NumPadEnter) {
+        return false
+    }
+    return when (event.type) {
+        KeyEventType.KeyDown -> { onPress(); true }
+        KeyEventType.KeyUp -> { onRelease(); true }
+        else -> false
     }
 }
 
