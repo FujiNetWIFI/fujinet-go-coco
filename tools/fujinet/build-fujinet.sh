@@ -214,6 +214,28 @@ patch("build.sh", [
         '        pip install platformio || exit 1\n',
         '        pip install platformio pyyaml jinja2 || exit 1\n',
     ),
+    # Skip ctest for the Android cross-compile: the unit-test binaries
+    # (fujibuspacket_tests, expat's runtests/runtestspp) are built for the target
+    # ABI and cannot execute on the x86_64 build host ("Exec format error"). The
+    # library artifact is already built by the dist target above; only the test
+    # run is host-native, so guard it on ANDROID_NDK_HOME (set for Android builds).
+    (
+        '  # run unit tests\n'
+        '  ctest -V --progress\n'
+        '    if [ $? -ne 0 ] ; then\n'
+        '    echo "Error running unit tests. Aborting"\n'
+        '    exit 1\n'
+        '  fi\n',
+        '  # run unit tests (skipped for Android cross-compile: the test binaries\n'
+        '  # are built for the target ABI and cannot execute on the build host)\n'
+        '  if [ -z "${ANDROID_NDK_HOME}" ] ; then\n'
+        '    ctest -V --progress\n'
+        '    if [ $? -ne 0 ] ; then\n'
+        '      echo "Error running unit tests. Aborting"\n'
+        '      exit 1\n'
+        '    fi\n'
+        '  fi\n',
+    ),
 ])
 
 # --- fujinet_pc.cmake: SHARED target, mbedTLS, expat, dist ----------------
