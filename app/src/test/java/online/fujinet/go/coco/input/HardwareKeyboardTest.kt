@@ -37,13 +37,15 @@ class HardwareKeyboardTest {
     }
 
     @Test
-    fun cursorKeysAndUnknownKeysAreNotForwarded() {
-        // The cursor cluster drives on-screen-keyboard focus (TV remote); use the
-        // on-screen arrow keys to move the CoCo cursor.
-        assertNull(cocoScancode(KeyEvent.KEYCODE_DPAD_LEFT))
-        assertNull(cocoScancode(KeyEvent.KEYCODE_DPAD_RIGHT))
-        assertNull(cocoScancode(KeyEvent.KEYCODE_DPAD_UP))
-        assertNull(cocoScancode(KeyEvent.KEYCODE_DPAD_DOWN))
+    fun cursorKeysMapAndUnknownKeysAreNotForwarded() {
+        // Cursor keys typed on a keyboard reach the CoCo (e.g. the FujiNet CONFIG
+        // selection bar). isDpadNavigation() routes a TV remote's D-pad (SOURCE_DPAD)
+        // to focus navigation before this keycode lookup is consulted.
+        assertEquals(Coco.SCAN_LEFT, cocoScancode(KeyEvent.KEYCODE_DPAD_LEFT))
+        assertEquals(Coco.SCAN_RIGHT, cocoScancode(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(Coco.SCAN_UP, cocoScancode(KeyEvent.KEYCODE_DPAD_UP))
+        assertEquals(Coco.SCAN_DOWN, cocoScancode(KeyEvent.KEYCODE_DPAD_DOWN))
+        // DPAD_CENTER has no CoCo equivalent; unknown keys aren't forwarded either.
         assertNull(cocoScancode(KeyEvent.KEYCODE_DPAD_CENTER))
         assertNull(cocoScancode(KeyEvent.KEYCODE_VOLUME_UP))
     }

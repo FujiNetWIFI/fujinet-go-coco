@@ -12,9 +12,10 @@ import android.view.KeyEvent
  * becomes the CoCo's "!"), so -- unlike a character-based keyboard -- Shift/Ctrl
  * are mapped here too.
  *
- * Only events from a real *alphabetic* keyboard device are consumed, and the D-pad
- * cluster (arrows + OK) is always left to Compose focus navigation so a TV remote
- * keeps driving the on-screen keyboard rather than typing.
+ * Only events from a real *alphabetic* keyboard device are consumed. A D-pad cluster
+ * event is left to Compose focus navigation only when it comes from a TV remote /
+ * gamepad (marked SOURCE_DPAD); arrows typed on a keyboard reach the CoCo (see
+ * isDpadNavigation()).
  */
 class HardwareKeyboard(
     private val onDown: (scancode: Int) -> Unit,
@@ -43,9 +44,7 @@ class HardwareKeyboard(
 
 /**
  * Map an Android keycode to its XRoar hkbd (USB HID) scancode, or null for keys we
- * don't forward. Pure (no [KeyEvent] instance) so it can be unit-tested. The cursor
- * keys are intentionally absent -- they navigate the on-screen keyboard (see
- * isDpadNavigation()); use the on-screen arrow keys to move the CoCo cursor.
+ * don't forward. Pure (no [KeyEvent] instance) so it can be unit-tested.
  */
 internal fun cocoScancode(androidKeyCode: Int): Int? = when (androidKeyCode) {
     in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z ->
@@ -68,19 +67,28 @@ internal fun cocoScancode(androidKeyCode: Int): Int? = when (androidKeyCode) {
     KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> Coco.SCAN_SHIFT_L
     KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> Coco.SCAN_CONTROL_L
     KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> Coco.SCAN_ALT_L
+    // Cursor keys reach this table only for events isDpadNavigation() let through,
+    // i.e. typed on a keyboard rather than a TV remote / gamepad D-pad. DPAD_CENTER
+    // has no CoCo equivalent, so it is never forwarded.
+    KeyEvent.KEYCODE_DPAD_UP -> Coco.SCAN_UP
+    KeyEvent.KEYCODE_DPAD_DOWN -> Coco.SCAN_DOWN
+    KeyEvent.KEYCODE_DPAD_LEFT -> Coco.SCAN_LEFT
+    KeyEvent.KEYCODE_DPAD_RIGHT -> Coco.SCAN_RIGHT
     else -> null
 }
 
 /**
  * True for the keys that must navigate/activate the on-screen keyboard rather than
- * type into the emulator. The arrows and DPAD_CENTER are always reserved. A remote's
- * "OK" can arrive as ENTER; it carries a D-pad source, whereas a typing keyboard's
- * Enter does not -- so keyboard Enter still reaches the CoCo as ENTER.
+ * type into the emulator. The D-pad cluster (arrows, DPAD_CENTER) and a remote's
+ * "OK"/ENTER are reserved only when they carry a D-pad source -- i.e. they come from a
+ * TV remote or gamepad. A typing keyboard's arrows and Enter carry no SOURCE_DPAD, so
+ * they fall through and reach the CoCo (arrows as cursor scancodes, Enter as ENTER) --
+ * e.g. to drive the FujiNet CONFIG selection bar.
  */
 private fun isDpadNavigation(event: KeyEvent): Boolean = when (event.keyCode) {
     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-    KeyEvent.KEYCODE_DPAD_CENTER -> true
+    KeyEvent.KEYCODE_DPAD_CENTER,
     KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
         event.source and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD
     else -> false
