@@ -54,6 +54,8 @@ fun EmulatorScreen(
     // At most one input overlay is shown so the emulator surface keeps room.
     var overlay by remember { mutableStateOf(Overlay.KEYBOARD) }
     var showSettings by remember { mutableStateOf(false) }
+    var keyboardHaptics by remember { mutableStateOf(session.keyboardHapticsEnabled) }
+    var joystickHaptics by remember { mutableStateOf(session.joystickHapticsEnabled) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     if (showSettings) {
@@ -61,11 +63,15 @@ fun EmulatorScreen(
             machine = session.machine,
             tvInput = session.tvInput,
             ccr = session.ccr,
+            keyboardHaptics = keyboardHaptics,
+            joystickHaptics = joystickHaptics,
             onApply = { machine, tv, ccr ->
                 session.setMachine(machine)
                 session.setTvInput(tv)
                 session.setCcr(ccr)
             },
+            onKeyboardHapticsChange = { keyboardHaptics = it; session.keyboardHapticsEnabled = it },
+            onJoystickHapticsChange = { joystickHaptics = it; session.joystickHapticsEnabled = it },
             onReset = session::reset,
             onDismiss = { showSettings = false },
         )
@@ -93,6 +99,7 @@ fun EmulatorScreen(
                 JoystickPad(
                     onAxis = { x, y -> session.joystick(x, y) },
                     modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp),
+                    hapticsEnabled = joystickHaptics,
                 )
                 EmulatorSurface(
                     session = session,
@@ -101,6 +108,7 @@ fun EmulatorScreen(
                 FireButtons(
                     session,
                     modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 12.dp),
+                    hapticsEnabled = joystickHaptics,
                 )
             }
         } else {
@@ -110,8 +118,8 @@ fun EmulatorScreen(
                 EmulatorSurface(session = session, modifier = Modifier.fillMaxSize())
             }
             when (overlay) {
-                Overlay.KEYBOARD -> CocoKeyboard(session = session)
-                Overlay.JOYSTICK -> JoystickView(session = session)
+                Overlay.KEYBOARD -> CocoKeyboard(session = session, hapticsEnabled = keyboardHaptics)
+                Overlay.JOYSTICK -> JoystickView(session = session, hapticsEnabled = joystickHaptics)
                 Overlay.NONE -> {}
             }
         }

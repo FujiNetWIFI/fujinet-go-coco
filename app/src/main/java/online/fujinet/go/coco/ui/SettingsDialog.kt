@@ -14,6 +14,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,7 +61,11 @@ fun SettingsDialog(
     machine: Int,
     tvInput: Int,
     ccr: Int,
+    keyboardHaptics: Boolean,
+    joystickHaptics: Boolean,
     onApply: (machine: Int, tvInput: Int, ccr: Int) -> Unit,
+    onKeyboardHapticsChange: (Boolean) -> Unit,
+    onJoystickHapticsChange: (Boolean) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -101,6 +106,13 @@ fun SettingsDialog(
                 OptionRow("Artifact", CCR_LABELS, draftCcr) { draftCcr = it }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Haptics", style = MaterialTheme.typography.titleSmall)
+                // Haptics apply live (no session restart), so they call back immediately
+                // rather than going through the draft/Apply path the machine options use.
+                ToggleRow("Keyboard haptics", keyboardHaptics, onKeyboardHapticsChange)
+                ToggleRow("Joystick haptics", joystickHaptics, onJoystickHapticsChange)
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 OutlinedButton(
                     onClick = { onReset(); onDismiss() },
@@ -109,6 +121,22 @@ fun SettingsDialog(
             }
         },
     )
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 @Composable

@@ -35,6 +35,15 @@ class SessionController private constructor(private val context: Context) {
     @Volatile var ccr: Int = prefs.getInt(KEY_CCR, Coco.CCR_5BIT)
         private set
 
+    /** Live haptic-feedback toggles (persisted; no session restart). */
+    var keyboardHapticsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_KEYBOARD_HAPTICS, true)
+        set(value) { prefs.edit().putBoolean(KEY_KEYBOARD_HAPTICS, value).apply() }
+
+    var joystickHapticsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_JOYSTICK_HAPTICS, true)
+        set(value) { prefs.edit().putBoolean(KEY_JOYSTICK_HAPTICS, value).apply() }
+
     /** The FujiNet SD directory (where imported media lands), once staged. */
     val sdPath: String? get() = paths?.sdPath
 
@@ -138,6 +147,8 @@ class SessionController private constructor(private val context: Context) {
             }
 
         private const val TAG = "FujiCoCo"
+        private const val KEY_KEYBOARD_HAPTICS = "keyboardHaptics"
+        private const val KEY_JOYSTICK_HAPTICS = "joystickHaptics"
         private const val KEY_MACHINE = "machine"
         // "tv_mode" (not the old "tv_input"): the enum's meaning changed (now 0..3
         // = S-Video / composite-BR / composite-RB / RGB), so reset to the default.

@@ -19,11 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,9 +58,12 @@ import online.fujinet.go.coco.input.Coco
  * the next real key is released.
  */
 @Composable
-fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
+fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier, hapticsEnabled: Boolean = true) {
     var shift by remember { mutableStateOf(false) }
     var ctrl by remember { mutableStateOf(false) }
+
+    val emitHaptic = rememberFujiHaptic(FujiHapticPattern.KeyPress)
+    val onHaptic = { if (hapticsEnabled) emitHaptic() }
 
     fun toggleShift() {
         shift = !shift
@@ -100,6 +106,10 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
         }
     }
 
+    // Every keycap routes its gesture through KeyBox; rather than thread an onHaptic
+    // through all the call sites, expose the gated pulse via a CompositionLocal that
+    // the key composables read and fire on press/tap.
+    CompositionLocalProvider(LocalKeyHaptic provides onHaptic) {
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -150,7 +160,11 @@ fun CocoKeyboard(session: SessionController, modifier: Modifier = Modifier) {
             Key("→", 1f, Coco.SCAN_RIGHT, ::press, ::release)
         }
     }
+    }
 }
+
+/** The gated key-press haptic pulse, supplied by [CocoKeyboard] and fired by each key. */
+private val LocalKeyHaptic = staticCompositionLocalOf<() -> Unit> { {} }
 
 @Composable
 private fun KeyRow(content: @Composable RowScope.() -> Unit) {
@@ -175,14 +189,18 @@ private fun RowScope.Key(
     bg: Color = MaterialTheme.colorScheme.surface,
     fg: Color = MaterialTheme.colorScheme.onSurface,
 ) {
+    // Read live (KeyBox's touch gesture is keyed on the stable scancode and won't
+    // restart), so toggling haptics takes effect without re-showing the keyboard.
+    val haptic by rememberUpdatedState(LocalKeyHaptic.current)
     KeyBox(
         label, weight, bg, fg, scancode,
         // D-pad/remote: hold while OK is held, mirroring the touch press/release so
         // the CoCo matrix scan sees it.
-        onDpadPress = { onPress(scancode) },
+        onDpadPress = { haptic(); onPress(scancode) },
         onDpadRelease = { onRelease(scancode) },
     ) {
         detectTapGestures(onPress = {
+            haptic()
             onPress(scancode)
             try {
                 awaitRelease()
@@ -200,23 +218,25 @@ private const val MACRO_GAP_MS = 40L   // released this long before the next key
 
 @Composable
 private fun RowScope.MacroKey(label: String, weight: Float, onTap: () -> Unit) {
+    val haptic by rememberUpdatedState(LocalKeyHaptic.current)
     KeyBox(
         label, weight, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface, label,
-        onDpadRelease = { onTap() }, // fire once on OK release, like a click
+        onDpadRelease = { haptic(); onTap() }, // fire once on OK release, like a click
     ) {
-        detectTapGestures(onTap = { onTap() })
+        detectTapGestures(onTap = { haptic(); onTap() })
     }
 }
 
 @Composable
 private fun RowScope.ModKey(label: String, weight: Float, active: Boolean, onToggle: () -> Unit) {
+    val haptic by rememberUpdatedState(LocalKeyHaptic.current)
     val bg = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
     val fg = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     KeyBox(
         label, weight, bg, fg, active,
-        onDpadRelease = { onToggle() },
+        onDpadRelease = { haptic(); onToggle() },
     ) {
-        detectTapGestures(onTap = { onToggle() })
+        detectTapGestures(onTap = { haptic(); onToggle() })
     }
 }
 
